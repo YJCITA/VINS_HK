@@ -15,7 +15,10 @@ catkin_package()
 include_directories(${catkin_INCLUDE_DIRS}) 
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
-find_package(Eigen3  REQUIRED)
+# include(/home/yj/bak/packet/eigen3/script_eigen.cmake)
+include(/home/yj/bak/packet/eigen3_new/script_eigen.cmake) # eigen new
+MESSAGE(STATUS "EIGEN3_INCLUDE_DIR = ${EIGEN3_INCLUDE_DIR}")
+# find_package(Eigen3  REQUIRED)
 include_directories(
   ${catkin_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIR}

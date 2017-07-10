@@ -16,14 +16,20 @@ find_package(catkin REQUIRED COMPONENTS
     camera_model
     )
 
-find_package(OpenCV REQUIRED)
+# SET(OpenCV_DIR "/home/yj/bak/packet/opencv/opencv3.1/install/share/OpenCV")
+# FIND_PACKAGE(OpenCV 3.1.0 REQUIRED)
+SET(OpenCV_DIR "/home/yj/bak/packet/opencv/opencv-2.4.13/install/share/OpenCV")
+FIND_PACKAGE(OpenCV 2.4.13 REQUIRED)
+# find_package(OpenCV REQUIRED)
 
+SET(Ceres_DIR "/home/yj/bak/packet/ceres_solver/install/share/Ceres")
 find_package(Ceres REQUIRED)
-
+MESSAGE(STATUS "vins: CERES_INCLUDE_DIRS: ${CERES_INCLUDE_DIRS}")
 include_directories(${catkin_INCLUDE_DIRS} ${CERES_INCLUDE_DIRS})
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
-find_package(Eigen3  REQUIRED)
+include(/home/yj/bak/packet/eigen3_new/script_eigen.cmake) # eigen new
+#find_package(Eigen3  REQUIRED)
 include_directories(
   ${catkin_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIR}

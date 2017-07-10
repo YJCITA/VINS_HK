@@ -470,9 +470,8 @@ void process()
                 image[feature_id].emplace_back(camera_id, Vector3d(x, y, z));
             }
             estimator.processImage(image, img_msg->header);
-            /**
-            *** start build keyframe database for loop closure
-            **/
+			
+//             *** start build keyframe database for loop closure
             if(LOOP_CLOSURE)
             {
                 // remove previous loop

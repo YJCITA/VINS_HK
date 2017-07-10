@@ -3,7 +3,8 @@ project(camera_model)
 
 set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_FLAGS "-std=c++11")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -fPIC")
+#set(CMAKE_CXX_FLAGS_RELEASE "-O3 -fPIC")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
 
 find_package(catkin REQUIRED COMPONENTS
     roscpp
@@ -13,12 +14,17 @@ find_package(catkin REQUIRED COMPONENTS
 find_package(Boost REQUIRED COMPONENTS filesystem program_options system)
 include_directories(${Boost_INCLUDE_DIRS})
 
-find_package(OpenCV REQUIRED)
+#SET(OpenCV_DIR "/home/yj/bak/packet/opencv/opencv3.1/install/share/OpenCV")
+#FIND_PACKAGE(OpenCV 3.1.0 REQUIRED)
+SET(OpenCV_DIR "/home/yj/bak/packet/opencv/opencv-2.4.13/install/share/OpenCV")
+FIND_PACKAGE(OpenCV 2.4.13 REQUIRED)
+#find_package(OpenCV REQUIRED)
 
 # set(EIGEN_INCLUDE_DIR "/usr/local/include/eigen3")
+SET(Ceres_DIR "/home/yj/bak/packet/ceres_solver/install/share/Ceres")
 find_package(Ceres REQUIRED)
 include_directories(${CERES_INCLUDE_DIRS})
-
+MESSAGE(STATUS "CERES_INCLUDE_DIRS: ${CERES_INCLUDE_DIRS}")
 
 catkin_package(
     INCLUDE_DIRS include
@@ -49,7 +55,7 @@ include_directories("include")
 #     src/gpl/gpl.cc
 #     src/gpl/EigenQuaternionParameterization.cc)
 
-add_library(camera_model
+add_library(camera_model STATIC
     src/chessboard/Chessboard.cc
     src/calib/CameraCalibration.cc
     src/camera_models/Camera.cc
