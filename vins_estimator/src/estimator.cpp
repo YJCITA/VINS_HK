@@ -71,19 +71,17 @@ void Estimator::clearState()
 
 void Estimator::processIMU(double dt, const Vector3d &linear_acceleration, const Vector3d &angular_velocity)
 {
-    if (!first_imu)
-    {
+    if (!first_imu){
         first_imu = true;
         acc_0 = linear_acceleration;
         gyr_0 = angular_velocity;
     }
 
-    if (!pre_integrations[frame_count])
-    {
+    if (!pre_integrations[frame_count]){
         pre_integrations[frame_count] = new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]};
     }
-    if (frame_count != 0)
-    {
+    
+    if (frame_count != 0){
         pre_integrations[frame_count]->push_back(dt, linear_acceleration, angular_velocity);
         //if(solver_flag != NON_LINEAR)
             tmp_pre_integration->push_back(dt, linear_acceleration, angular_velocity);
@@ -125,15 +123,12 @@ void Estimator::processImage(const map<int, vector<pair<int, Vector3d>>> &image,
     all_image_frame.insert(make_pair(header.stamp.toSec(), imageframe));
     tmp_pre_integration = new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]};
 
-    if(ESTIMATE_EXTRINSIC == 2)
-    {
+    if(ESTIMATE_EXTRINSIC == 2){
         ROS_INFO("calibrating extrinsic param, rotation movement is needed");
-        if (frame_count != 0)
-        {
+        if (frame_count != 0){
             vector<pair<Vector3d, Vector3d>> corres = f_manager.getCorresponding(frame_count - 1, frame_count);
             Matrix3d calib_ric;
-            if (initial_ex_rotation.CalibrationExRotation(corres, pre_integrations[frame_count]->delta_q, calib_ric))
-            {
+            if (initial_ex_rotation.CalibrationExRotation(corres, pre_integrations[frame_count]->delta_q, calib_ric)){
                 ROS_WARN("initial extrinsic rotation calib success");
                 ROS_WARN_STREAM("initial extrinsic rotation: " << endl << calib_ric);
                 ric[0] = calib_ric;
@@ -143,18 +138,15 @@ void Estimator::processImage(const map<int, vector<pair<int, Vector3d>>> &image,
         }
     }
 
-    if (solver_flag == INITIAL)
-    {
-        if (frame_count == WINDOW_SIZE)
-        {
+    if (solver_flag == INITIAL){
+        if (frame_count == WINDOW_SIZE){
             bool result = false;
-            if( ESTIMATE_EXTRINSIC != 2 && (header.stamp.toSec() - initial_timestamp) > 0.1)
-            {
+            if( ESTIMATE_EXTRINSIC != 2 && (header.stamp.toSec() - initial_timestamp) > 0.1){
                result = initialStructure();
                initial_timestamp = header.stamp.toSec();
             }
-            if(result)
-            {
+            
+            if(result){
                 solver_flag = NON_LINEAR;
                 solveOdometry();
                 slideWindow();
@@ -165,21 +157,16 @@ void Estimator::processImage(const map<int, vector<pair<int, Vector3d>>> &image,
                 last_R0 = Rs[0];
                 last_P0 = Ps[0];
                 
-            }
-            else
+            }else
                 slideWindow();
-        }
-        else
+        }else
             frame_count++;
-    }
-    else
-    {
+    }else{
         TicToc t_solve;
         solveOdometry();
         ROS_DEBUG("solver costs: %fms", t_solve.toc());
 
-        if (failureDetection())
-        {
+        if (failureDetection()){
             ROS_WARN("failure detection!");
             failure_occur = 1;
             clearState();
@@ -203,6 +190,8 @@ void Estimator::processImage(const map<int, vector<pair<int, Vector3d>>> &image,
         last_P0 = Ps[0];
     }
 }
+
+
 bool Estimator::initialStructure()
 {
     TicToc t_sfm;
@@ -210,62 +199,57 @@ bool Estimator::initialStructure()
     {
         map<double, ImageFrame>::iterator frame_it;
         Vector3d sum_g;
-        for (frame_it = all_image_frame.begin(), frame_it++; frame_it != all_image_frame.end(); frame_it++)
-        {
+        for (frame_it = all_image_frame.begin(), frame_it++; frame_it != all_image_frame.end(); frame_it++){
             double dt = frame_it->second.pre_integration->sum_dt;
             Vector3d tmp_g = frame_it->second.pre_integration->delta_v / dt;
             sum_g += tmp_g;
         }
+        
         Vector3d aver_g;
         aver_g = sum_g * 1.0 / ((int)all_image_frame.size() - 1);
         double var = 0;
-        for (frame_it = all_image_frame.begin(), frame_it++; frame_it != all_image_frame.end(); frame_it++)
-        {
+        for (frame_it = all_image_frame.begin(), frame_it++; frame_it != all_image_frame.end(); frame_it++){
             double dt = frame_it->second.pre_integration->sum_dt;
             Vector3d tmp_g = frame_it->second.pre_integration->delta_v / dt;
             var += (tmp_g - aver_g).transpose() * (tmp_g - aver_g);
             //cout << "frame g " << tmp_g.transpose() << endl;
         }
+        
         var = sqrt(var / ((int)all_image_frame.size() - 1));
         //ROS_WARN("IMU variation %f!", var);
-        if(var < 0.25)
-        {
+        if(var < 0.25){
             ROS_INFO("IMU excitation not enouth!");
             //return false;
         }
     }
+    
     // global sfm
     Quaterniond Q[frame_count + 1];
     Vector3d T[frame_count + 1];
     map<int, Vector3d> sfm_tracked_points;
     vector<SFMFeature> sfm_f;
-    for (auto &it_per_id : f_manager.feature)
-    {
+    for (auto &it_per_id : f_manager.feature){
         int imu_j = it_per_id.start_frame - 1;
         SFMFeature tmp_feature;
         tmp_feature.state = false;
         tmp_feature.id = it_per_id.feature_id;
-        for (auto &it_per_frame : it_per_id.feature_per_frame)
-        {
+        for (auto &it_per_frame : it_per_id.feature_per_frame){
             imu_j++;
             Vector3d pts_j = it_per_frame.point;
             tmp_feature.observation.push_back(make_pair(imu_j, Eigen::Vector2d{pts_j.x(), pts_j.y()}));
         }
         sfm_f.push_back(tmp_feature);
     } 
+    
     Matrix3d relative_R;
     Vector3d relative_T;
     int l;
-    if (!relativePose(relative_R, relative_T, l))
-    {
+    if (!relativePose(relative_R, relative_T, l)){
         ROS_INFO("Not enough features or parallax; Move device around");
         return false;
     }
     GlobalSFM sfm;
-    if(!sfm.construct(frame_count + 1, Q, T, l,
-              relative_R, relative_T,
-              sfm_f, sfm_tracked_points))
-    {
+    if(!sfm.construct(frame_count + 1, Q, T, l, relative_R, relative_T, sfm_f, sfm_tracked_points)){
         ROS_DEBUG("global SFM failed!");
         marginalization_flag = MARGIN_OLD;
         return false;
@@ -275,12 +259,10 @@ bool Estimator::initialStructure()
     map<double, ImageFrame>::iterator frame_it;
     map<int, Vector3d>::iterator it;
     frame_it = all_image_frame.begin( );
-    for (int i = 0; frame_it != all_image_frame.end( ); frame_it++)
-    {
+    for (int i = 0; frame_it != all_image_frame.end( ); frame_it++){
         // provide initial guess
         cv::Mat r, rvec, t, D, tmp_r;
-        if((frame_it->first) == Headers[i].stamp.toSec())
-        {
+        if((frame_it->first) == Headers[i].stamp.toSec()){
             frame_it->second.is_key_frame = true;
             frame_it->second.R = Q[i].toRotationMatrix() * RIC[0].transpose();
             frame_it->second.T = T[i];
@@ -288,9 +270,7 @@ bool Estimator::initialStructure()
             continue;
         }
         if((frame_it->first) > Headers[i].stamp.toSec())
-        {
             i++;
-        }
         Matrix3d R_inital = (Q[i].inverse()).toRotationMatrix();
         Vector3d P_inital = - R_inital * T[i];
         cv::eigen2cv(R_inital, tmp_r);
@@ -300,16 +280,13 @@ bool Estimator::initialStructure()
         frame_it->second.is_key_frame = false;
         vector<cv::Point3f> pts_3_vector;
         vector<cv::Point2f> pts_2_vector;
-        for (auto &id_pts : frame_it->second.points)
-        {
+        for (auto &id_pts : frame_it->second.points){
             int feature_id = id_pts.first;
             //cout << "feature id " << feature_id;
-            for (auto &i_p : id_pts.second)
-            {
+            for (auto &i_p : id_pts.second){
                 //cout << " pts image_frame " << (i_p.second.head<2>() * 460 ).transpose() << endl;
                 it = sfm_tracked_points.find(feature_id);
-                if(it != sfm_tracked_points.end())
-                {
+                if(it != sfm_tracked_points.end()){
                     Vector3d world_pts = it->second;
                     cv::Point3f pts_3(world_pts(0), world_pts(1), world_pts(2));
                     pts_3_vector.push_back(pts_3);
@@ -319,18 +296,19 @@ bool Estimator::initialStructure()
                 }
             }
         }
+        
         cv::Mat K = (cv::Mat_<double>(3, 3) << 1, 0, 0, 0, 1, 0, 0, 0, 1);     
-        if(pts_3_vector.size() < 6)
-        {
+        if(pts_3_vector.size() < 6){
             //cout << "pts_3_vector size " << pts_3_vector.size() << endl;
             ROS_DEBUG("Not enough points for solve pnp !");
             return false;
         }
-        if (! cv::solvePnP(pts_3_vector, pts_2_vector, K, D, rvec, t, 1))
-        {
+        
+        if (! cv::solvePnP(pts_3_vector, pts_2_vector, K, D, rvec, t, 1)){
             ROS_DEBUG("solve pnp fail!");
             return false;
         }
+        
         cv::Rodrigues(rvec, r);
         MatrixXd R_pnp,tmp_R_pnp;
         cv::cv2eigen(r, tmp_R_pnp);
@@ -341,10 +319,10 @@ bool Estimator::initialStructure()
         frame_it->second.R = R_pnp * RIC[0].transpose();
         frame_it->second.T = T_pnp;
     }
+    
     if (visualInitialAlign())
         return true;
-    else
-    {
+    else{
         ROS_INFO("misalign visual structure with IMU");
         return false;
     }
@@ -357,15 +335,13 @@ bool Estimator::visualInitialAlign()
     VectorXd x;
     //solve scale
     bool result = VisualIMUAlignment(all_image_frame, Bgs, g, x);
-    if(!result)
-    {
+    if(!result){
         ROS_DEBUG("solve g failed!");
         return false;
     }
 
     // change state
-    for (int i = 0; i <= frame_count; i++)
-    {
+    for (int i = 0; i <= frame_count; i++){
         Matrix3d Ri = all_image_frame[Headers[i].stamp.toSec()].R;
         Vector3d Pi = all_image_frame[Headers[i].stamp.toSec()].T;
         Ps[i] = Pi;

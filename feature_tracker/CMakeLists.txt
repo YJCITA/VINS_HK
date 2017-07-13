@@ -23,7 +23,7 @@ FIND_PACKAGE(OpenCV 2.4.13 REQUIRED)
 SET(Ceres_DIR "/home/yj/bak/packet/ceres_solver/install/share/Ceres")
 find_package(Ceres REQUIRED)
 MESSAGE(STATUS "feature_tracker: CERES_INCLUDE_DIRS: ${CERES_INCLUDE_DIRS}")
-include_directories(${catkin_INCLUDE_DIRS} ${CERES_INCLUDE_DIRS})
+include_directories( ${CERES_INCLUDE_DIRS})
 
 catkin_package()
 
@@ -35,7 +35,6 @@ set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 include(/home/yj/bak/packet/eigen3_new/script_eigen.cmake) # eigen new
 #find_package(Eigen3  REQUIRED)
 include_directories(
-  ${catkin_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIR}
 )
 

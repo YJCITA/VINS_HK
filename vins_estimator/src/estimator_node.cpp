@@ -19,54 +19,52 @@
 #include "camodocal/camera_models/PinholeCamera.h"
 
 Estimator estimator;
-
-std::condition_variable con;
-double current_time = -1;
-queue<sensor_msgs::ImuConstPtr> imu_buf;
-queue<sensor_msgs::PointCloudConstPtr> feature_buf;
-std::mutex m_posegraph_buf;
-queue<int> optimize_posegraph_buf;
-queue<KeyFrame*> keyframe_buf;
-queue<RetriveData> retrive_data_buf;
-
-int sum_of_wait = 0;
-
-std::mutex m_buf;
-std::mutex m_state;
-std::mutex i_buf;
-std::mutex m_loop_drift;
-std::mutex m_keyframedatabase_resample;
-std::mutex m_update_visualization;
-std::mutex m_keyframe_buf;
-std::mutex m_retrive_data_buf;
-
-double latest_time;
-Eigen::Vector3d tmp_P;
-Eigen::Quaterniond tmp_Q;
-Eigen::Vector3d tmp_V;
-Eigen::Vector3d tmp_Ba;
-Eigen::Vector3d tmp_Bg;
-Eigen::Vector3d acc_0;
-Eigen::Vector3d gyr_0;
-
-queue<pair<cv::Mat, double>> image_buf;
 LoopClosure *loop_closure;
 KeyFrameDatabase keyframe_database;
 
-int global_frame_cnt = 0;
+std::condition_variable con;
+double g_current_time = -1;
+double g_latest_time = -1;
+int g_sum_of_wait = 0;
+int g_frame_cnt = 0;
+
+queue<sensor_msgs::ImuConstPtr> g_imu_buf;
+queue<sensor_msgs::PointCloudConstPtr> g_feature_buf;
+queue<int> g_optimize_posegraph_buf;
+queue<KeyFrame*> g_keyframe_buf;
+queue<RetriveData> g_retrive_data_buf;
+queue<pair<cv::Mat, double>> g_image_buf;
+
+std::mutex mtx_posegraph_buf;
+std::mutex mtx_buf;
+std::mutex mtx_state;
+std::mutex mtx_i_buf;
+std::mutex mtx_loop_drift;
+std::mutex mtx_keyframedatabase_resample;
+std::mutex mtx_update_visualization;
+std::mutex mtx_keyframe_buftion;
+std::mutex mtx_retrive_data_buf;
+
+Eigen::Vector3d g_tmp_P;
+Eigen::Quaterniond g_tmp_Q;
+Eigen::Vector3d g_tmp_V;
+Eigen::Vector3d g_tmp_Ba;
+Eigen::Vector3d g_tmp_Bg;
+Eigen::Vector3d g_acc_0;
+Eigen::Vector3d g_gyr_0;
+
 //camera param
 camodocal::CameraPtr m_camera;
-vector<int> erase_index;
-std_msgs::Header cur_header;
-Eigen::Vector3d relocalize_t{Eigen::Vector3d(0, 0, 0)};
-Eigen::Matrix3d relocalize_r{Eigen::Matrix3d::Identity()};
-
+vector<int> g_erase_index;
+std_msgs::Header g_cur_header;
+Eigen::Vector3d g_relocalize_t{ Eigen::Vector3d(0, 0, 0) };
+Eigen::Matrix3d g_relocalize_r{ Eigen::Matrix3d::Identity() };
 
 void predict(const sensor_msgs::ImuConstPtr &imu_msg)
 {
     double t = imu_msg->header.stamp.toSec();
-    double dt = t - latest_time;
-    latest_time = t;
+    double dt = t - g_latest_time;
+    g_latest_time = t;
 
     double dx = imu_msg->linear_acceleration.x;
     double dy = imu_msg->linear_acceleration.y;
@@ -78,71 +76,62 @@ void predict(const sensor_msgs::ImuConstPtr &imu_msg)
     double rz = imu_msg->angular_velocity.z;
     Eigen::Vector3d angular_velocity{rx, ry, rz};
 
-    Eigen::Vector3d un_acc_0 = tmp_Q * (acc_0 - tmp_Ba - tmp_Q.inverse() * estimator.g);
-
-    Eigen::Vector3d un_gyr = 0.5 * (gyr_0 + angular_velocity) - tmp_Bg;
-    tmp_Q = tmp_Q * Utility::deltaQ(un_gyr * dt);
-
-    Eigen::Vector3d un_acc_1 = tmp_Q * (linear_acceleration - tmp_Ba - tmp_Q.inverse() * estimator.g);
-
+    Eigen::Vector3d un_acc_0 = g_tmp_Q * (g_acc_0 - g_tmp_Ba - g_tmp_Q.inverse() * estimator.g);
+    Eigen::Vector3d un_gyr = 0.5 * (g_gyr_0 + angular_velocity) - g_tmp_Bg;
+    g_tmp_Q = g_tmp_Q * Utility::deltaQ(un_gyr * dt);
+    Eigen::Vector3d un_acc_1 = g_tmp_Q * (linear_acceleration - g_tmp_Ba - g_tmp_Q.inverse() * estimator.g);
     Eigen::Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);
+    g_tmp_P = g_tmp_P + dt * g_tmp_V + 0.5 * dt * dt * un_acc;
+    g_tmp_V = g_tmp_V + dt * un_acc;
 
-    tmp_P = tmp_P + dt * tmp_V + 0.5 * dt * dt * un_acc;
-    tmp_V = tmp_V + dt * un_acc;
-
-    acc_0 = linear_acceleration;
-    gyr_0 = angular_velocity;
+    g_acc_0 = linear_acceleration;
+    g_gyr_0 = angular_velocity;
 }
 
 void update()
 {
     TicToc t_predict;
-    latest_time = current_time;
-    tmp_P = relocalize_r * estimator.Ps[WINDOW_SIZE] + relocalize_t;
-    tmp_Q = relocalize_r * estimator.Rs[WINDOW_SIZE];
-    tmp_V = estimator.Vs[WINDOW_SIZE];
-    tmp_Ba = estimator.Bas[WINDOW_SIZE];
-    tmp_Bg = estimator.Bgs[WINDOW_SIZE];
-    acc_0 = estimator.acc_0;
-    gyr_0 = estimator.gyr_0;
+    g_latest_time = g_current_time;
+    g_tmp_P = g_relocalize_r * estimator.Ps[WINDOW_SIZE] + g_relocalize_t;
+    g_tmp_Q = g_relocalize_r * estimator.Rs[WINDOW_SIZE];
+    g_tmp_V = estimator.Vs[WINDOW_SIZE];
+    g_tmp_Ba = estimator.Bas[WINDOW_SIZE];
+    g_tmp_Bg = estimator.Bgs[WINDOW_SIZE];
+    g_acc_0 = estimator.acc_0;
+    g_gyr_0 = estimator.gyr_0;
 
-    queue<sensor_msgs::ImuConstPtr> tmp_imu_buf = imu_buf;
+    queue<sensor_msgs::ImuConstPtr> tmp_imu_buf = g_imu_buf;
     for (sensor_msgs::ImuConstPtr tmp_imu_msg; !tmp_imu_buf.empty(); tmp_imu_buf.pop())
         predict(tmp_imu_buf.front());
 
 }
 
 std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>>
-getMeasurements()
+GetMeasurements()
 {
     std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>> measurements;
-
-    while (true)
-    {
-        if (imu_buf.empty() || feature_buf.empty())
+    while (true){
+        if (g_imu_buf.empty() || g_feature_buf.empty())
             return measurements;
 
-        if (!(imu_buf.back()->header.stamp > feature_buf.front()->header.stamp))
-        {
+        if (!(g_imu_buf.back()->header.stamp > g_feature_buf.front()->header.stamp)){
             ROS_WARN("wait for imu, only should happen at the beginning");
-            sum_of_wait++;
+            g_sum_of_wait++;
             return measurements;
         }
 
-        if (!(imu_buf.front()->header.stamp < feature_buf.front()->header.stamp))
-        {
+        if (!(g_imu_buf.front()->header.stamp < g_feature_buf.front()->header.stamp)){
             ROS_WARN("throw img, only should happen at the beginning");
-            feature_buf.pop();
+            g_feature_buf.pop();
             continue;
         }
-        sensor_msgs::PointCloudConstPtr img_msg = feature_buf.front();
-        feature_buf.pop();
+        sensor_msgs::PointCloudConstPtr img_msg = g_feature_buf.front();
+        g_feature_buf.pop();
 
         std::vector<sensor_msgs::ImuConstPtr> IMUs;
-        while (imu_buf.front()->header.stamp <= img_msg->header.stamp)
-        {
-            IMUs.emplace_back(imu_buf.front());
-            imu_buf.pop();
+        while (g_imu_buf.front()->header.stamp <= img_msg->header.stamp){
+            IMUs.emplace_back(g_imu_buf.front());
+            g_imu_buf.pop();
         }
 
         measurements.emplace_back(IMUs, img_msg);
@@ -150,50 +139,50 @@ getMeasurements()
     return measurements;
 }
 
-void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg)
+void ImuCallback(const sensor_msgs::ImuConstPtr &imu_msg)
 {
-    m_buf.lock();
-    imu_buf.push(imu_msg);
-    m_buf.unlock();
+    mtx_buf.lock();
+    g_imu_buf.push(imu_msg);
+    mtx_buf.unlock();
     con.notify_one();
 
     {
-        std::lock_guard<std::mutex> lg(m_state);
+        std::lock_guard<std::mutex> lg(mtx_state);
         predict(imu_msg);
         std_msgs::Header header = imu_msg->header;
         header.frame_id = "world";
         if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
-            pubLatestOdometry(tmp_P, tmp_Q, tmp_V, header);
+            pubLatestOdometry(g_tmp_P, g_tmp_Q, g_tmp_V, header);
     }
 }
 
-void raw_image_callback(const sensor_msgs::ImageConstPtr &img_msg)
+void RawImageCallback(const sensor_msgs::ImageConstPtr &img_msg)
 {
     cv_bridge::CvImagePtr img_ptr = cv_bridge::toCvCopy(img_msg, sensor_msgs::image_encodings::MONO8);
     //image_pool[img_msg->header.stamp.toNSec()] = img_ptr->image;
     if(LOOP_CLOSURE)
     {
-        i_buf.lock();
-        image_buf.push(make_pair(img_ptr->image, img_msg->header.stamp.toSec()));
-        i_buf.unlock();
+        mtx_i_buf.lock();
+        g_image_buf.push(make_pair(img_ptr->image, img_msg->header.stamp.toSec()));
+        mtx_i_buf.unlock();
     }
 }
 
-void feature_callback(const sensor_msgs::PointCloudConstPtr &feature_msg)
+void FeatureCallback(const sensor_msgs::PointCloudConstPtr &feature_msg)
 {
-    m_buf.lock();
-    feature_buf.push(feature_msg);
-    m_buf.unlock();
+    mtx_buf.lock();
+    g_feature_buf.push(feature_msg);
+    mtx_buf.unlock();
     con.notify_one();
 }
 
-void send_imu(const sensor_msgs::ImuConstPtr &imu_msg)
+void ProcessIMU(const sensor_msgs::ImuConstPtr &imu_msg)
 {
     double t = imu_msg->header.stamp.toSec();
-    if (current_time < 0)
-        current_time = t;
-    double dt = t - current_time;
-    current_time = t;
+    if (g_current_time < 0)
+        g_current_time = t;
+    double dt = t - g_current_time;
+    g_current_time = t;
 
     double ba[]{0.0, 0.0, 0.0};
     double bg[]{0.0, 0.0, 0.0};
@@ -211,7 +200,7 @@ void send_imu(const sensor_msgs::ImuConstPtr &imu_msg)
 }
 
 //thread:loop detection
-void process_loop_detection()
+void ProcessLoopDetection()
 {
     if(loop_closure == NULL)
     {
@@ -227,21 +216,21 @@ void process_loop_detection()
     while(LOOP_CLOSURE)
     {
         KeyFrame* cur_kf = NULL; 
-        m_keyframe_buf.lock();
-        while(!keyframe_buf.empty())
+        mtx_keyframe_buftion.lock();
+        while(!g_keyframe_buf.empty())
         {
             if(cur_kf!=NULL)
                 delete cur_kf;
-            cur_kf = keyframe_buf.front();
-            keyframe_buf.pop();
+            cur_kf = g_keyframe_buf.front();
+            g_keyframe_buf.pop();
         }
-        m_keyframe_buf.unlock();
+        mtx_keyframe_buftion.unlock();
         if (cur_kf != NULL)
         {
-            cur_kf->global_index = global_frame_cnt;
-            m_keyframedatabase_resample.lock();
+            cur_kf->global_index = g_frame_cnt;
+            mtx_keyframedatabase_resample.lock();
             keyframe_database.add(cur_kf);
-            m_keyframedatabase_resample.unlock();
+            mtx_keyframedatabase_resample.unlock();
 
             cv::Mat current_image;
             current_image = cur_kf->image;   
@@ -265,7 +254,7 @@ void process_loop_detection()
                     ROS_WARN("NO such frame in keyframe_database");
                     ROS_BREAK();
                 }
-                ROS_DEBUG("loop succ %d with %drd image", global_frame_cnt, old_index);
+                ROS_DEBUG("loop succ %d with %drd image", g_frame_cnt, old_index);
                 assert(old_index!=-1);
                 
                 Vector3d T_w_i_old, PnP_T_old;
@@ -281,7 +270,7 @@ void process_loop_detection()
                 features_id_matched = cur_kf->features_id_matched;
                 // send loop info to VINS relocalization
                 int loop_fusion = 0;
-                if( (int)measurements_old_norm.size() > MIN_LOOP_NUM && global_frame_cnt - old_index > 35 && old_index > 30)
+                if( (int)measurements_old_norm.size() > MIN_LOOP_NUM && g_frame_cnt - old_index > 35 && old_index > 30)
                 {
 
                     Quaterniond PnP_Q_old(PnP_R_old);
@@ -301,18 +290,18 @@ void process_loop_detection()
                     retrive_data.loop_pose[4] = PnP_Q_old.y();
                     retrive_data.loop_pose[5] = PnP_Q_old.z();
                     retrive_data.loop_pose[6] = PnP_Q_old.w();
-                    m_retrive_data_buf.lock();
-                    retrive_data_buf.push(retrive_data);
-                    m_retrive_data_buf.unlock();
+                    mtx_retrive_data_buf.lock();
+                    g_retrive_data_buf.push(retrive_data);
+                    mtx_retrive_data_buf.unlock();
                     cur_kf->detectLoop(old_index);
                     old_kf->is_looped = 1;
                     loop_fusion = 1;
 
-                    m_update_visualization.lock();
+                    mtx_update_visualization.lock();
                     keyframe_database.addLoop(old_index);
                     CameraPoseVisualization* posegraph_visualization = keyframe_database.getPosegraphVisualization();
-                    pubPoseGraph(posegraph_visualization, cur_header);  
-                    m_update_visualization.unlock();
+                    pubPoseGraph(posegraph_visualization, g_cur_header);  
+                    mtx_update_visualization.unlock();
                 }
 
 
@@ -377,16 +366,16 @@ void process_loop_detection()
             }
             //release memory
             cur_kf->image.release();
-            global_frame_cnt++;
+            g_frame_cnt++;
 
             if (t_loop > 1000 || keyframe_database.size() > MAX_KEYFRAME_NUM)
             {
-                m_keyframedatabase_resample.lock();
-                erase_index.clear();
-                keyframe_database.downsample(erase_index);
-                m_keyframedatabase_resample.unlock();
-                if(!erase_index.empty())
-                    loop_closure->eraseIndex(erase_index);
+                mtx_keyframedatabase_resample.lock();
+                g_erase_index.clear();
+                keyframe_database.downsample(g_erase_index);
+                mtx_keyframedatabase_resample.unlock();
+                if(!g_erase_index.empty())
+                    loop_closure->eraseIndex(g_erase_index);
             }
         }
         std::chrono::milliseconds dura(10);
@@ -395,18 +384,18 @@ void process_loop_detection()
 }
 
 //thread: pose_graph optimization
-void process_pose_graph()
+void ProcessPoseGraph()
 {
     while(true)
     {
-        m_posegraph_buf.lock();
+        mtx_posegraph_buf.lock();
         int index = -1;
-        while (!optimize_posegraph_buf.empty())
+        while (!g_optimize_posegraph_buf.empty())
         {
-            index = optimize_posegraph_buf.front();
-            optimize_posegraph_buf.pop();
+            index = g_optimize_posegraph_buf.front();
+            g_optimize_posegraph_buf.pop();
         }
-        m_posegraph_buf.unlock();
+        mtx_posegraph_buf.unlock();
         if(index != -1)
         {
             Vector3d correct_t = Vector3d::Zero();
@@ -416,16 +405,16 @@ void process_pose_graph()
                                                     correct_t,
                                                     correct_r);
             ROS_DEBUG("t_posegraph %f ms", t_posegraph.toc());
-            m_loop_drift.lock();
-            relocalize_r = correct_r;
-            relocalize_t = correct_t;
-            m_loop_drift.unlock();
-            m_update_visualization.lock();
+            mtx_loop_drift.lock();
+            g_relocalize_r = correct_r;
+            g_relocalize_t = correct_t;
+            mtx_loop_drift.unlock();
+            mtx_update_visualization.lock();
             keyframe_database.updateVisualization();
             CameraPoseVisualization* posegraph_visualization = keyframe_database.getPosegraphVisualization();
-            m_update_visualization.unlock();
-            pubOdometry(estimator, cur_header, relocalize_t, relocalize_r);
-            pubPoseGraph(posegraph_visualization, cur_header); 
+            mtx_update_visualization.unlock();
+            pubOdometry(estimator, g_cur_header, g_relocalize_t, g_relocalize_r);
+            pubPoseGraph(posegraph_visualization, g_cur_header); 
             nav_msgs::Path refine_path = keyframe_database.getPath();
             updateLoopPath(refine_path);
         }
@@ -436,30 +425,25 @@ void process_pose_graph()
 }
 
 // thread: visual-inertial odometry
-void process()
+void ProcessVIO()
 {
-    while (true)
-    {
+    while (1){
         std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>> measurements;
-        std::unique_lock<std::mutex> lk(m_buf);
-        con.wait(lk, [&]
-                 {
-            return (measurements = getMeasurements()).size() != 0;
-                 });
+        std::unique_lock<std::mutex> lk(mtx_buf);
+        con.wait(lk, [&]{ return (measurements = GetMeasurements()).size() != 0; });
         lk.unlock();
 
-        for (auto &measurement : measurements)
-        {
+        for (auto &measurement : measurements){
+			// 1. 处理IMU
             for (auto &imu_msg : measurement.first)
-                send_imu(imu_msg);
-
+                ProcessIMU(imu_msg);
+			
+			// 2. 处理image
             auto img_msg = measurement.second;
             ROS_DEBUG("processing vision data with stamp %f \n", img_msg->header.stamp.toSec());
-
             TicToc t_s;
             map<int, vector<pair<int, Vector3d>>> image;
-            for (unsigned int i = 0; i < img_msg->points.size(); i++)
-            {
+            for (unsigned int i = 0; i < img_msg->points.size(); i++){
                 int v = img_msg->channels[0].values[i] + 0.5;
                 int feature_id = v / NUM_OF_CAM;
                 int camera_id = v % NUM_OF_CAM;
@@ -470,105 +454,97 @@ void process()
                 image[feature_id].emplace_back(camera_id, Vector3d(x, y, z));
             }
             estimator.processImage(image, img_msg->header);
-			
-//             *** start build keyframe database for loop closure
-            if(LOOP_CLOSURE)
-            {
+
+			// start build keyframe database for loop closure
+            if(LOOP_CLOSURE){
                 // remove previous loop
                 vector<RetriveData>::iterator it = estimator.retrive_data_vector.begin();
-                for(; it != estimator.retrive_data_vector.end(); )
-                {
+                for(; it != estimator.retrive_data_vector.end(); ){
                     if ((*it).header < estimator.Headers[0].stamp.toSec())
-                    {
                         it = estimator.retrive_data_vector.erase(it);
-                    }
                     else
                         it++;
                 }
-                m_retrive_data_buf.lock();
-                while(!retrive_data_buf.empty())
-                {
-                    RetriveData tmp_retrive_data = retrive_data_buf.front();
-                    retrive_data_buf.pop();
+                
+                mtx_retrive_data_buf.lock();
+                while(!g_retrive_data_buf.empty()){
+                    RetriveData tmp_retrive_data = g_retrive_data_buf.front();
+                    g_retrive_data_buf.pop();
                     estimator.retrive_data_vector.push_back(tmp_retrive_data);
                 }
-                m_retrive_data_buf.unlock();
+                mtx_retrive_data_buf.unlock();
+				
                 //WINDOW_SIZE - 2 is key frame
-                if(estimator.marginalization_flag == 0 && estimator.solver_flag == estimator.NON_LINEAR)
-                {   
+                if(estimator.marginalization_flag == 0 && estimator.solver_flag == estimator.NON_LINEAR){   
                     Vector3d vio_T_w_i = estimator.Ps[WINDOW_SIZE - 2];
                     Matrix3d vio_R_w_i = estimator.Rs[WINDOW_SIZE - 2];
-                    i_buf.lock();
-                    while(!image_buf.empty() && image_buf.front().second < estimator.Headers[WINDOW_SIZE - 2].stamp.toSec())
-                    {
-                        image_buf.pop();
+                    mtx_i_buf.lock();
+                    while(!g_image_buf.empty() && g_image_buf.front().second < estimator.Headers[WINDOW_SIZE - 2].stamp.toSec()){
+                        g_image_buf.pop();
                     }
-                    i_buf.unlock();
-                    //assert(estimator.Headers[WINDOW_SIZE - 1].stamp.toSec() == image_buf.front().second);
+                    mtx_i_buf.unlock();
+					
+                    //assert(estimator.Headers[WINDOW_SIZE - 1].stamp.toSec() == g_image_buf.front().second);
                     // relative_T   i-1_T_i relative_R  i-1_R_i
                     cv::Mat KeyFrame_image;
-                    KeyFrame_image = image_buf.front().first;
+                    KeyFrame_image = g_image_buf.front().first;
                     
                     const char *pattern_file = PATTERN_FILE.c_str();
                     Vector3d cur_T;
                     Matrix3d cur_R;
-                    cur_T = relocalize_r * vio_T_w_i + relocalize_t;
-                    cur_R = relocalize_r * vio_R_w_i;
-                    KeyFrame* keyframe = new KeyFrame(estimator.Headers[WINDOW_SIZE - 2].stamp.toSec(), vio_T_w_i, vio_R_w_i, cur_T, cur_R, image_buf.front().first, pattern_file);
+                    cur_T = g_relocalize_r * vio_T_w_i + g_relocalize_t;
+                    cur_R = g_relocalize_r * vio_R_w_i;
+                    KeyFrame* keyframe = new KeyFrame(estimator.Headers[WINDOW_SIZE - 2].stamp.toSec(), vio_T_w_i, vio_R_w_i, cur_T, cur_R, g_image_buf.front().first, pattern_file);
                     keyframe->setExtrinsic(estimator.tic[0], estimator.ric[0]);
                     keyframe->buildKeyFrameFeatures(estimator, m_camera);
-                    m_keyframe_buf.lock();
-                    keyframe_buf.push(keyframe);
-                    m_keyframe_buf.unlock();
+                    mtx_keyframe_buftion.lock();
+                    g_keyframe_buf.push(keyframe);
+                    mtx_keyframe_buftion.unlock();
                     // update loop info
-                    if (!estimator.retrive_data_vector.empty() && estimator.retrive_data_vector[0].relative_pose)
-                    {
-                        if(estimator.Headers[0].stamp.toSec() == estimator.retrive_data_vector[0].header)
-                        {
+                    if (!estimator.retrive_data_vector.empty() && estimator.retrive_data_vector[0].relative_pose){
+                        if(estimator.Headers[0].stamp.toSec() == estimator.retrive_data_vector[0].header){
                             KeyFrame* cur_kf = keyframe_database.getKeyframe(estimator.retrive_data_vector[0].cur_index);                            
-                            if (abs(estimator.retrive_data_vector[0].relative_yaw) > 30.0 || estimator.retrive_data_vector[0].relative_t.norm() > 20.0)
-                            {
+                            if (abs(estimator.retrive_data_vector[0].relative_yaw) > 30.0 || estimator.retrive_data_vector[0].relative_t.norm() > 20.0){
                                 ROS_DEBUG("Wrong loop");
                                 cur_kf->removeLoop();
-                            }
-                            else 
-                            {
+                            }else {
                                 cur_kf->updateLoopConnection( estimator.retrive_data_vector[0].relative_t, 
                                                               estimator.retrive_data_vector[0].relative_q, 
                                                               estimator.retrive_data_vector[0].relative_yaw);
-                                m_posegraph_buf.lock();
-                                optimize_posegraph_buf.push(estimator.retrive_data_vector[0].cur_index);
-                                m_posegraph_buf.unlock();
+                                mtx_posegraph_buf.lock();
+                                g_optimize_posegraph_buf.push(estimator.retrive_data_vector[0].cur_index);
+                                mtx_posegraph_buf.unlock();
                             }
                         }
                     }
                 }
             }
+            
             double whole_t = t_s.toc();
             printStatistics(estimator, whole_t);
             std_msgs::Header header = img_msg->header;
             header.frame_id = "world";
-            cur_header = header;
-            m_loop_drift.lock();
-            if (estimator.relocalize)
-            {
-                relocalize_t = estimator.relocalize_t;
-                relocalize_r = estimator.relocalize_r;
+            g_cur_header = header;
+            mtx_loop_drift.lock();
+            if (estimator.relocalize){
+                g_relocalize_t = estimator.relocalize_t;
+                g_relocalize_r = estimator.relocalize_r;
             }
-            pubOdometry(estimator, header, relocalize_t, relocalize_r);
-            pubKeyPoses(estimator, header, relocalize_t, relocalize_r);
-            pubCameraPose(estimator, header, relocalize_t, relocalize_r);
-            pubPointCloud(estimator, header, relocalize_t, relocalize_r);
-            pubTF(estimator, header, relocalize_t, relocalize_r);
-            m_loop_drift.unlock();
+            pubOdometry(estimator, header, g_relocalize_t, g_relocalize_r);
+            pubKeyPoses(estimator, header, g_relocalize_t, g_relocalize_r);
+            pubCameraPose(estimator, header, g_relocalize_t, g_relocalize_r);
+            pubPointCloud(estimator, header, g_relocalize_t, g_relocalize_r);
+            pubTF(estimator, header, g_relocalize_t, g_relocalize_r);
+            mtx_loop_drift.unlock();
             //ROS_ERROR("end: %f, at %f", img_msg->header.stamp.toSec(), ros::Time::now().toSec());
         }
-        m_buf.lock();
-        m_state.lock();
+        
+        mtx_buf.lock();
+        mtx_state.lock();
         if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
             update();
-        m_state.unlock();
-        m_buf.unlock();
+        mtx_state.unlock();
+        mtx_buf.unlock();
     }
 }
 
@@ -585,19 +561,19 @@ int main(int argc, char **argv)
     ROS_WARN("waiting for image and imu...");
 
     registerPub(n);
+    ros::Subscriber sub_imu = n.subscribe(IMU_TOPIC, 2000, ImuCallback, ros::TransportHints().tcpNoDelay());
+    ros::Subscriber sub_image = n.subscribe("/feature_tracker/feature", 2000, FeatureCallback);
+    ros::Subscriber sub_raw_image = n.subscribe(IMAGE_TOPIC, 2000, RawImageCallback);
 
-    ros::Subscriber sub_imu = n.subscribe(IMU_TOPIC, 2000, imu_callback, ros::TransportHints().tcpNoDelay());
-    ros::Subscriber sub_image = n.subscribe("/feature_tracker/feature", 2000, feature_callback);
-    ros::Subscriber sub_raw_image = n.subscribe(IMAGE_TOPIC, 2000, raw_image_callback);
-
-    std::thread measurement_process{process};
+	// VIO main thread
+    std::thread measurement_process{ ProcessVIO };
+	
     std::thread loop_detection, pose_graph;
-    if (LOOP_CLOSURE)
-    {
+    if (LOOP_CLOSURE){
         ROS_WARN("LOOP_CLOSURE true");
-        loop_detection = std::thread(process_loop_detection);   
-        pose_graph = std::thread(process_pose_graph);
-        m_camera = CameraFactory::instance()->generateCameraFromYamlFile(CAM_NAMES);
+        loop_detection = std::thread( ProcessLoopDetection );   
+        pose_graph = std::thread( ProcessPoseGraph );
+        m_camera = CameraFactory::instance()->generateCameraFromYamlFile( CAM_NAMES );
     }
     ros::spin();
 

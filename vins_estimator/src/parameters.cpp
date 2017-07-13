@@ -50,9 +50,7 @@ void readParameters(ros::NodeHandle &n)
     config_file = readParam<std::string>(n, "config_file");
     cv::FileStorage fsSettings(config_file, cv::FileStorage::READ);
     if(!fsSettings.isOpened())
-    {
         std::cerr << "ERROR: Wrong path to settings" << std::endl;
-    }
 
     VINS_FOLDER_PATH = readParam<std::string>(n, "vins_folder");
     fsSettings["image_topic"] >> IMAGE_TOPIC;
@@ -78,17 +76,14 @@ void readParameters(ros::NodeHandle &n)
     G.z() = fsSettings["g_norm"];
 
     ESTIMATE_EXTRINSIC = fsSettings["estimate_extrinsic"];
-    if (ESTIMATE_EXTRINSIC == 2)
-    {
+    if (ESTIMATE_EXTRINSIC == 2){
         ROS_WARN("have no prior about extrinsic param, calibrate extrinsic param");
         RIC.push_back(Eigen::Matrix3d::Identity());
         TIC.push_back(Eigen::Vector3d::Zero());
         fsSettings["ex_calib_result_path"] >> EX_CALIB_RESULT_PATH;
         EX_CALIB_RESULT_PATH = VINS_FOLDER_PATH + EX_CALIB_RESULT_PATH;
 
-    }
-    else 
-    {
+    }else {
         if ( ESTIMATE_EXTRINSIC == 1)
         {
             ROS_WARN(" Optimize extrinsic param around initial guess!");
@@ -113,8 +108,6 @@ void readParameters(ros::NodeHandle &n)
         ROS_INFO_STREAM("Extrinsic_T : " << std::endl << TIC[0].transpose());
         
     } 
-
-
 
     LOOP_CLOSURE = fsSettings["loop_closure"];
     if (LOOP_CLOSURE == 1)
